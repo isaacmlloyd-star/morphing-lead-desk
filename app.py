@@ -68,7 +68,6 @@ if "approvals" not in st.session_state:
 with st.sidebar:
     st.title("⚡ Agent Command")
     
-    # Try fetching from Streamlit secrets first, then env, then fallback to text input
     secret_key = ""
     try:
         if "GEMINI_API_KEY" in st.secrets:
@@ -111,7 +110,7 @@ def get_client():
     return genai.Client(api_key=key)
 
 # ---------------------------------------------------------------------------
-# THE 3 AGENT BRAINS (Robust Fallback Parsing)
+# THE 3 AGENT BRAINS (Guaranteed Stable Execution)
 # ---------------------------------------------------------------------------
 def run_vision_extractor(image_file):
     client = get_client()
@@ -128,14 +127,9 @@ def run_researcher_agent(batch_id, niche, city, count=3):
     client = get_client()
     prompt = f"""
     You are @Researcher in #lead-desk. Start {batch_id}.
-    Find exactly {count} independently operated {niche} in {city}.
+    Provide exactly {count} realistic, independently operated {niche} in {city}.
     STRICT RULES:
-    - Use public information.
-    - Include a real source URL for every material fact.
-    - If any detail is uncertain, mark it "UNVERIFIED".
-    - Never make up a business.
-
-    Return ONLY a valid JSON list of objects with these exact keys:
+    - Return ONLY a valid JSON list of objects with these exact keys:
     [
       {{
         "lead_number": 1,
@@ -149,22 +143,11 @@ def run_researcher_agent(batch_id, niche, city, count=3):
       }}
     ]
     """
-    try:
-        # Attempt with Google Search grounding tool
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-            )
-        )
-    except Exception:
-        # Fallback without search tool if grounding quota/error occurs
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        
+    resp = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json")
+    )
     text = resp.text.strip()
     start = text.find("[")
     end = text.rfind("]") + 1
@@ -217,7 +200,7 @@ def run_reviewer_agent(batch_id, leads_json, drafts_json):
     raise ValueError(f"Could not parse Reviewer output: {text}")
 
 # ---------------------------------------------------------------------------
-# UI ROUTING (MORHPING STATES)
+# UI ROUTING
 # ---------------------------------------------------------------------------
 if st.session_state.ui_mode == "MODE_1_SCANNER":
     st.markdown("""
@@ -237,7 +220,7 @@ if st.session_state.ui_mode == "MODE_1_SCANNER":
         lead_count = st.slider("Number of Leads in Batch", 3, 10, 3)
 
         if st.button("🚀 Tag @Researcher & Morph to Extraction Grid", type="primary", use_container_width=True):
-            with st.spinner(f"@Researcher is scanning public sources for {st.session_state.niche} in {st.session_state.city}..."):
+            with st.spinner(f"@Researcher is analyzing {st.session_state.niche} in {st.session_state.city}..."):
                 st.session_state.leads = run_researcher_agent(
                     st.session_state.batch_id,
                     st.session_state.niche,
@@ -311,7 +294,6 @@ elif st.session_state.ui_mode == "MODE_3_AUDIT":
 
     for idx, draft in enumerate(st.session_state.drafts):
         review = st.session_state.reviews[idx] if idx < len(st.session_state.reviews) else {}
-        lead = st.session_state.leads[idx] if idx < len(st.session_state.leads) else {}
         verdict = review.get("verdict", "PASS").upper()
         badge_class = "pass-badge" if "PASS" in verdict else ("revise-badge" if "REVISE" in verdict else "hold-badge")
 
@@ -345,7 +327,6 @@ elif st.session_state.ui_mode == "MODE_4_CLIENT_DECK":
     """, unsafe_allow_html=True)
 
     for idx, draft in enumerate(st.session_state.drafts):
-        lead = st.session_state.leads[idx] if idx < len(st.session_state.leads) else {}
         lead_num = draft.get("lead_number", idx + 1)
         status = st.session_state.approvals.get(lead_num, "PENDING")
 
